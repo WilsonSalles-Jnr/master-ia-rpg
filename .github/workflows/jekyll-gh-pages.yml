@@ -30,7 +30,6 @@ jobs:
       - name: Upload Jekyll artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          name: jekyll-site # Nome único para o artefato Jekyll
           path: ./_site
 
   deploy:
@@ -56,7 +55,6 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          name: static-site # Nome único para o artefato de build
           path: './dist'
       - name: Deploy to GitHub Pages
         id: deployment
