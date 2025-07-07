@@ -50,6 +50,8 @@ jobs:
         run: yarn install
       - name: Build
         run: yarn build
+        env:
+          VITE_TOKEN: ${{ secrets.VITE_TOKEN }}
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
