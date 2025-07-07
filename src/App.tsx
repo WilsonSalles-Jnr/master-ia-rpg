@@ -168,7 +168,9 @@ function App() {
   };
 
   return (
-    <AppShell navbar={{ breakpoint: 700, width: 300 }}>
+    <AppShell
+      navbar={{ breakpoint: 700, width: 300, collapsed: { mobile: true } }}
+    >
       <AppShellNavbar bg="dark.8" c="white">
         <Stack m={5}>
           <Text fw={700} fz={24}>
@@ -179,7 +181,7 @@ function App() {
         </Stack>
       </AppShellNavbar>
       <AppShellMain bg="dark.6" c="white">
-        <Stack p={50} h="100vh">
+        <Stack p={25} h="100vh">
           <Text fw={700} fz={48} ta="center">
             Master IA RPG
           </Text>
