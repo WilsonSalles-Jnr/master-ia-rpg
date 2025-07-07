@@ -216,6 +216,7 @@ function App() {
                       <Group>
                         {message.options.map((opt) => (
                           <Button
+                            style={{ whiteSpace: "break-spaces" }}
                             disabled={messages.length - 1 > index || isLoading}
                             onClick={() => handleSendMessage(opt)}
                           >
