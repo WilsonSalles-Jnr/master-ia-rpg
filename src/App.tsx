@@ -10,7 +10,9 @@ import {
   Loader,
   Modal,
   Paper,
+  Progress,
   ScrollArea,
+  Select,
   Stack,
   Text,
   Textarea,
@@ -20,11 +22,12 @@ import ReactMarkdown from "react-markdown";
 import "./App.css";
 import { useDisclosure } from "@mantine/hooks";
 import mageIa from "../public/ia.png";
-import { IconUser } from "@tabler/icons-react";
+import { IconHeart, IconUser } from "@tabler/icons-react";
 
 interface Message {
   id: string;
   text: string;
+  currentHp?: number;
   options?: string[];
   sender: "user" | "ai";
 }
@@ -37,11 +40,14 @@ function App() {
       sender: "ai",
     },
   ]);
+  const [currentHp, setHp] = useState(100);
 
   const [playerName, setPlayerName] = useState("");
   const [playerDetails, setPlayerDetails] = useState("");
   const [scenario, setScenario] = useState("");
   const [objective, setObjective] = useState("");
+  const [duration, setDuration] = useState("curta");
+  const [dificult, setDificult] = useState("média");
 
   const [isLoading, setIsLoading] = useState(false);
   const [playerModal, playerModalActions] = useDisclosure(false);
@@ -50,18 +56,6 @@ function App() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
-
-  const extractOptionsFromResponse = (response: string) => {
-    console.log(response);
-    const opcoes = response
-      .split("\n")
-      .filter((linha) => linha.trim().startsWith("[opcao]"))
-      .map((linha) => linha.replace("[opcao]", "").trim());
-    if (opcoes != undefined && opcoes.length > 1) {
-      return opcoes;
-    }
-    return undefined;
-  };
 
   const callDeepSeekAPI = async (prompt: string) => {
     try {
@@ -75,18 +69,33 @@ function App() {
           },
           body: JSON.stringify({
             model: "deepseek-chat",
+            response_format: { type: "json_object" },
             messages: [
               {
                 role: "system",
                 content: `Você é um mestre de RPG especializado em criar histórias interativas e imersivas.
-                Responda sempre em markdown formatado com emoção e detalhes vívidos.
-                Incentive o jogador a tomar decisões que moldem a história.
-                Ofereça no mínimo 2 opções e no máximo 5 opções.
-                Sempre ofereça as opções no seguinte padrão [opcao]Descrição da opção (para que seja feito a tratativa do retorno da mensagem, é necessário vir literalmente escrito [opcao]).
-                As opções devem vir apenas no final e elas não devem ser em markdown.
+                SEMPRE responda em STRICT JSON FORMAT como este exemplo:
+                {
+                  "text": "Aqui vai o markdown formatado com a história...",
+                  "currentHp": 100
+                  "options": ["Opção 1", "Opção 2"]
+                }
+                
+                Regras OBRIGATÓRIAS:
+                1. O campo "text" deve ser uma string com a formatação em markdown com emoção e detalhes vividos, bem como o título em cada nova mensagem
+                2. O campo "options" deve ter entre 2-5 opções (exceto no final da campanha)
+                3. As opções devem ser claras e concisas (máx 10 palavras)
+                4. Para batalhas, inclua rolls de dados no formato: **Dado rolado**: [X]
+                5. o campo "currentHp" deverá retornar a vida atual do personagem e ser atualizado conforme recuperar ou receber dano
+
                 Ao final da campanha, apenas uma opção de nova campanha deve aparecer.
-                Sistema de batalha devem ser feitas com dados, sendo girados automaticamente durante as batalhas e decisões que dependam de dados.
-                Aqui estão os detalhes importantes sobre o jogador: Nome do protagonista: ${playerName},  detalhes do protagonista: ${playerDetails}, cenário inicial: ${scenario}, objetivo do jogo: ${objective}, duração da campanha: curta`,
+                Aqui estão os detalhes importantes sobre o jogador:
+                Nome do protagonista: ${playerName} 
+                detalhes do protagonista: ${playerDetails}
+                cenário inicial: ${scenario}
+                objetivo do jogo: ${objective}
+                duração da campanha: ${duration}
+                dificuldade: ${dificult}`,
               },
               ...messages
                 .filter((m) => m.sender === "ai")
@@ -112,18 +121,29 @@ function App() {
       const data = await response.json();
       const aiResponse = data.choices[0].message.content;
 
-      const options = extractOptionsFromResponse(aiResponse);
+      //const options = extractOptionsFromResponse(aiResponse);
 
-      const cleanedText = options ? aiResponse.split("[opcao]")[0] : aiResponse;
+      //const cleanedText = options ? aiResponse.split("[opcao]")[0] : aiResponse;
+
+      const parsedResponse = JSON.parse(aiResponse);
+      console.log(aiResponse, parsedResponse);
+
+      setHp(parsedResponse.currentHp);
 
       return {
+        text: parsedResponse.text,
+        currentHp,
+        options: parsedResponse.options || [], // Fallback para array vazio
+      };
+      /* return {
         text: cleanedText,
         options,
-      };
+      }; */
     } catch (error) {
       console.error("Erro ao chamar DeepSeek API:", error);
       return {
         text: "**Erro:** Não foi possível processar sua requisição. Por favor, tente novamente.",
+        currentHp,
         options: ["Tentar novamente", "Voltar ao menu", "Continuar sem opções"],
       };
     }
@@ -134,6 +154,7 @@ function App() {
 
     const userMessage: Message = {
       id: Date.now().toString(),
+      currentHp,
       text: message,
       sender: "user",
     };
@@ -141,11 +162,12 @@ function App() {
     setIsLoading(true);
 
     try {
-      const { text, options } = await callDeepSeekAPI(message);
+      const { text, options, currentHp: hp } = await callDeepSeekAPI(message);
 
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         text,
+        currentHp: hp,
         options,
         sender: "ai",
       };
@@ -154,6 +176,7 @@ function App() {
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         text: "**Erro:** Não foi possível conectar ao servidor do DeepSeek. Por favor, tente novamente mais tarde.",
+        currentHp,
         sender: "ai",
       };
       setMessages((prev) => [...prev, errorMessage]);
@@ -182,9 +205,15 @@ function App() {
       </AppShellNavbar>
       <AppShellMain bg="dark.6" c="white">
         <Stack p={25} h="100vh">
-          <Text fw={700} fz={48} ta="center">
-            Master IA RPG
-          </Text>
+          <Stack>
+            <Text fw={700} fz={48} ta="center">
+              Master IA RPG
+            </Text>
+            <Group justify="center">
+              <IconHeart color="red" />
+              <Progress color="red" value={currentHp} w={300} />
+            </Group>
+          </Stack>
 
           <ScrollArea h="calc(100vh - 200px)" offsetScrollbars>
             <Stack gap="md" pb={20}>
@@ -273,6 +302,18 @@ function App() {
             <Textarea
               onChange={(e) => setObjective(e.target.value)}
               placeholder="Descrição do objetivo do rpg"
+            />
+            <Select
+              data={["curta", "média", "longa"]}
+              onSelect={(e) => setDuration(e.currentTarget.value)}
+              defaultValue={duration}
+              label="Duração"
+            />
+            <Select
+              data={["fácil", "média", "difícil"]}
+              onSelect={(e) => setDificult(e.currentTarget.value)}
+              defaultValue={dificult}
+              label="Dificuldade"
             />
             <Button onClick={startGame}>Iniciar</Button>
           </Stack>
