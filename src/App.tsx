@@ -1,53 +1,37 @@
 import {
+  ActionIcon,
+  Affix,
   AppShell,
   AppShellMain,
-  AppShellNavbar,
-  Avatar,
   Button,
-  Divider,
   Group,
-  Input,
   Loader,
-  Modal,
-  Paper,
-  Progress,
   ScrollArea,
-  Select,
   Stack,
   Text,
-  Textarea,
+  Tooltip,
 } from "@mantine/core";
-import { useEffect, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import "./App.css";
 import { useDisclosure } from "@mantine/hooks";
-import mageIa from "../public/ia.png";
-import { IconHeart, IconUser } from "@tabler/icons-react";
-
-interface Message {
-  id: string;
-  text: string;
-  currentHp?: number;
-  options?: string[];
-  sender: "user" | "ai";
-}
+import { IconMenu, IconUser } from "@tabler/icons-react";
+import { useEffect, useRef, useState } from "react";
+import "./App.css";
+import Messages from "./Components/Messages";
+import NavigationMenu from "./Components/NavigationMenu";
+import NewCampaignModal from "./Components/NewCampaignModal";
+import PlayerStatus from "./Components/PlayerStatus";
+import { callApi } from "./core/Services/deepseek.service";
+import type {
+  CampaignConfiguration,
+  Message,
+  Player,
+} from "./core/Types/IaTypes";
 
 function App() {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "1",
-      text: "**Bem-vindo ao Master IA RPG!**\n\nVamos criar uma história fantástica onde você será o protagonista. Você pode:\n\n- Escolher seu personagem\n- Definir o cenário inicial\n- Começar com um enigma\n\n*Por onde gostaria de começar?*",
-      sender: "ai",
-    },
-  ]);
-  const [currentHp, setHp] = useState(100);
-
-  const [playerName, setPlayerName] = useState("");
-  const [playerDetails, setPlayerDetails] = useState("");
-  const [scenario, setScenario] = useState("");
-  const [objective, setObjective] = useState("");
-  const [duration, setDuration] = useState("curta");
-  const [dificult, setDificult] = useState("média");
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [hiddenNavigation, hiddenNavigationActions] = useDisclosure(false);
+  const [playerStatus, playerStatusAction] = useDisclosure(false);
+  const [currentPlayer, setCurrentPlayer] = useState<Player>();
+  const [config, setConfig] = useState<CampaignConfiguration>();
 
   const [isLoading, setIsLoading] = useState(false);
   const [playerModal, playerModalActions] = useDisclosure(false);
@@ -57,219 +41,144 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const callDeepSeekAPI = async (prompt: string) => {
+  const startGame = async (
+    player: Player,
+    scenario: string,
+    objective: string,
+    configuration: CampaignConfiguration
+  ) => {
     try {
-      const response = await fetch(
-        "https://api.deepseek.com/v1/chat/completions",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${import.meta.env.VITE_TOKEN}`,
-          },
-          body: JSON.stringify({
-            model: "deepseek-chat",
-            response_format: { type: "json_object" },
-            messages: [
-              {
-                role: "system",
-                content: `Você é um mestre de RPG especializado em criar histórias interativas e imersivas.
-                SEMPRE responda em STRICT JSON FORMAT como este exemplo:
-                {
-                  "text": "Aqui vai o markdown formatado com a história...",
-                  "currentHp": 100
-                  "options": ["Opção 1", "Opção 2"]
-                }
-                
-                Regras OBRIGATÓRIAS:
-                1. O campo "text" deve ser uma string com a formatação em markdown com emoção e detalhes vividos, bem como o título em cada nova mensagem
-                2. O campo "options" deve ter entre 2-5 opções (exceto no final da campanha)
-                3. As opções devem ser claras e concisas (máx 10 palavras)
-                4. Para batalhas, inclua rolls de dados no formato: **Dado rolado**: [X]
-                5. o campo "currentHp" deverá retornar a vida atual do personagem e ser atualizado conforme recuperar ou receber dano
-
-                Ao final da campanha, apenas uma opção de nova campanha deve aparecer.
-                Aqui estão os detalhes importantes sobre o jogador:
-                Nome do protagonista: ${playerName} 
-                detalhes do protagonista: ${playerDetails}
-                cenário inicial: ${scenario}
-                objetivo do jogo: ${objective}
-                duração da campanha: ${duration}
-                dificuldade: ${dificult}`,
-              },
-              ...messages
-                .filter((m) => m.sender === "ai")
-                .map((m) => ({
-                  role: "assistant",
-                  content: m.text,
-                })),
-              {
-                role: "user",
-                content: prompt,
-              },
-            ],
-            temperature: 0.7,
-            max_tokens: 1000,
-          }),
-        }
+      setCurrentPlayer(player);
+      setConfig(configuration);
+      setIsLoading(true);
+      const response = await callApi(
+        messages,
+        `Iniciar minha carreira em ${scenario}, meu objetivo é ${objective}`,
+        player,
+        configuration
       );
-
-      if (!response.ok) {
-        throw new Error(`Erro na API: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const aiResponse = data.choices[0].message.content;
-
-      //const options = extractOptionsFromResponse(aiResponse);
-
-      //const cleanedText = options ? aiResponse.split("[opcao]")[0] : aiResponse;
-
-      const parsedResponse = JSON.parse(aiResponse);
-      console.log(aiResponse, parsedResponse);
-
-      setHp(parsedResponse.currentHp);
-
-      return {
-        text: parsedResponse.text,
-        currentHp,
-        options: parsedResponse.options || [], // Fallback para array vazio
-      };
-      /* return {
-        text: cleanedText,
-        options,
-      }; */
-    } catch (error) {
-      console.error("Erro ao chamar DeepSeek API:", error);
-      return {
-        text: "**Erro:** Não foi possível processar sua requisição. Por favor, tente novamente.",
-        currentHp,
-        options: ["Tentar novamente", "Voltar ao menu", "Continuar sem opções"],
-      };
+      const aiMessage: Message = { ...response, sender: "ai" };
+      setMessages((prev) => [...prev, aiMessage]);
+    } finally {
+      setIsLoading(false);
     }
+    playerModalActions.close();
   };
 
-  const handleSendMessage = async (message: string) => {
-    if (isLoading) return;
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      currentHp,
-      text: message,
-      sender: "user",
-    };
-    setMessages((prev) => [...prev, userMessage]);
-    setIsLoading(true);
-
+  const sendMessage = async (message: Message) => {
+    setMessages((prev) => [...prev, message]);
     try {
-      const { text, options, currentHp: hp } = await callDeepSeekAPI(message);
-
-      const aiMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        text,
-        currentHp: hp,
-        options,
-        sender: "ai",
-      };
-      setMessages((prev) => [...prev, aiMessage]);
-    } catch {
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        text: "**Erro:** Não foi possível conectar ao servidor do DeepSeek. Por favor, tente novamente mais tarde.",
-        currentHp,
-        sender: "ai",
-      };
-      setMessages((prev) => [...prev, errorMessage]);
+      setIsLoading(true);
+      if (currentPlayer && config) {
+        const response = await callApi(
+          messages,
+          message.message,
+          currentPlayer,
+          config
+        );
+        const aiMessage: Message = { ...response, sender: "ai" };
+        setMessages((prev) => [...prev, aiMessage]);
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
-  const startGame = () => {
-    handleSendMessage("Iniciar carreira");
-    playerModalActions.close();
-  };
-
   return (
     <AppShell
-      navbar={{ breakpoint: 700, width: 300, collapsed: { mobile: true } }}
+      navbar={{
+        breakpoint: 700,
+        width: 300,
+        collapsed: { desktop: hiddenNavigation, mobile: hiddenNavigation },
+      }}
     >
-      <AppShellNavbar bg="dark.8" c="white">
-        <Stack m={5}>
-          <Text fw={700} fz={24}>
-            MASTER IA RPG
-          </Text>
-          <Divider />
-          <Button>Primeira história</Button>
-        </Stack>
-      </AppShellNavbar>
+      <Affix position={{ bottom: 20, right: 20 }}>
+        <Button
+          size="lg"
+          rightSection={<IconUser />}
+          radius="xl"
+          onClick={playerStatusAction.open}
+        >
+          Status
+        </Button>
+      </Affix>
+      <Affix
+        position={{ bottom: 20, left: 20 }}
+        display={!hiddenNavigation ? "none" : undefined}
+      >
+        <Tooltip label="Exibir menu" position="right">
+          <ActionIcon
+            onClick={hiddenNavigationActions.close}
+            size="xl"
+            radius={60}
+          >
+            <IconMenu />
+          </ActionIcon>
+        </Tooltip>
+      </Affix>
+      <NavigationMenu
+        onClose={hiddenNavigationActions.open}
+        opened={hiddenNavigation}
+      />
       <AppShellMain bg="dark.6" c="white">
-        <Stack p={25} h="100vh">
-          <Stack>
-            <Text fw={700} fz={48} ta="center">
+        <Stack
+          p={25}
+          h="100vh"
+          justify={messages.length > 0 ? "start" : "center"}
+        >
+          <Stack align="center" gap={5}>
+            <Text fw={700} fz={48}>
               Master IA RPG
             </Text>
-            <Group justify="center">
-              <IconHeart color="red" />
-              <Progress color="red" value={currentHp} w={300} />
-            </Group>
+            <Text fz={20} hidden={messages.length > 0 || isLoading}>
+              Cada jornada é única, com cada detalhe construído pela IA. Crie
+              seu personagem e dê início à sua história, informando seu objetivo
+              e onde tudo irá começar.
+            </Text>
+            <Button
+              size="lg"
+              radius="xl"
+              w={300}
+              onClick={playerModalActions.open}
+              display={messages.length > 0 || isLoading ? "none" : undefined}
+              /* onClick={() =>
+                callApi(
+                  messages,
+                  "Local de inicio: metro de tokio, Objetivo: destruir a caixa de pandora que esta impedindo das pessoas morrerem em paz",
+                  {
+                    name: "Dragnov",
+                    charisma: 1,
+                    constitution: 1,
+                    dexterity: 1,
+                    hp: 10,
+                    intelligence: 1,
+                    luck: 1,
+                    maxHp: 10,
+                    strength: 6,
+                  },
+                  { battle: 5, dialog: 2, dificult: 3, duration: 2 }
+                )
+              } */
+            >
+              iniciar carreira
+            </Button>
           </Stack>
 
-          <ScrollArea h="calc(100vh - 200px)" offsetScrollbars>
+          <ScrollArea
+            h="calc(100vh - 200px)"
+            offsetScrollbars
+            display={messages.length > 0 ? undefined : "none"}
+          >
             <Stack gap="md" pb={20}>
               {messages.map((message, index) => (
-                <Group
-                  key={message.id}
-                  align="flex-start"
-                  justify={
-                    message.sender === "user" ? "flex-end" : "flex-start"
-                  }
-                >
-                  {message.sender === "ai" && (
-                    <Avatar color="blue" radius="xl" src={mageIa}>
-                      AI
-                    </Avatar>
-                  )}
-                  <Paper
-                    p="md"
-                    radius="md"
-                    bg={message.sender === "user" ? "blue.6" : "dark.5"}
-                    maw="70%"
-                  >
-                    {message.sender === "ai" ? (
-                      <ReactMarkdown>{message.text}</ReactMarkdown>
-                    ) : (
-                      <Text>{message.text}</Text>
-                    )}
-                    {message.options ? (
-                      <Group>
-                        {message.options.map((opt) => (
-                          <Button
-                            style={{ whiteSpace: "break-spaces" }}
-                            disabled={messages.length - 1 > index || isLoading}
-                            onClick={() => handleSendMessage(opt)}
-                          >
-                            {opt}
-                          </Button>
-                        ))}
-                      </Group>
-                    ) : null}
-                    {index === 0 && (
-                      <Button
-                        fullWidth
-                        onClick={playerModalActions.open}
-                        disabled={messages.length - 1 > index || isLoading}
-                      >
-                        Iniciar jornada
-                      </Button>
-                    )}
-                  </Paper>
-                  {message.sender === "user" && (
-                    <Avatar color="teal" radius="xl">
-                      <IconUser />
-                    </Avatar>
-                  )}
-                </Group>
+                <Messages
+                  key={index}
+                  isLoading={isLoading}
+                  index={index}
+                  message={message}
+                  messagesCount={messages.length}
+                  sendMessage={sendMessage}
+                />
               ))}
               {isLoading && (
                 <Group>
@@ -281,7 +190,7 @@ function App() {
             </Stack>
           </ScrollArea>
         </Stack>
-        <Modal
+        {/* <Modal
           opened={playerModal}
           onClose={playerModalActions.close}
           title="Criação de personagem e enredo"
@@ -317,7 +226,16 @@ function App() {
             />
             <Button onClick={startGame}>Iniciar</Button>
           </Stack>
-        </Modal>
+        </Modal> */}
+        <PlayerStatus
+          opened={playerStatus}
+          onClose={playerStatusAction.close}
+        />
+        <NewCampaignModal
+          opened={playerModal}
+          onClose={playerModalActions.close}
+          start={startGame}
+        />
       </AppShellMain>
     </AppShell>
   );
